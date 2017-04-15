@@ -84,11 +84,16 @@ for cont in continuous_vars:
         pvalue = mod.pvalues[1]
         results.append([cont, cat, pvalue])
 # convert categorical to integer
+from sklearn import preprocessing
+le = preprocessing.LabelEncoder()
+for var in cat_vars:
+    le.fit(train[var].values)
+    train[var + '_mod']=le.transform(train[var].values)
 # imputation
 # find missing values
 for predictor in continuous_vars:
     df = train[predictor]
-    if df.dtype.char == 'O':
+    if df.dtype.char == 'O' and len(df.isnull()) > 0:
         imp = Imputer(missing_values='NaN', strategy='most_frequent', axis=0)
         imp.fit(df.values.reshape(-1, 1))
         train[predictor + '_imp'] = imp.transform(df.values.reshape(-1, 1))
