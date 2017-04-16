@@ -1,13 +1,8 @@
 #"""Based on article http://ahmedbesbes.com/how-to-score-08134-in-titanic-kaggle-challenge.html"""
 import pandas as pd
 import numpy as np
-from sklearn.pipeline import make_pipeline
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.feature_selection import SelectKBest
-from sklearn.cross_validation import StratifiedKFold
-from sklearn.grid_search import GridSearchCV
-from sklearn.ensemble.gradient_boosting import GradientBoostingClassifier
-from sklearn.cross_validation import cross_val_score
+from sklearn.model_selection import StratifiedKFold, GridSearchCV, cross_val_score
 from sklearn.ensemble import ExtraTreesClassifier
 from sklearn.feature_selection import SelectFromModel
 
@@ -266,7 +261,7 @@ def scale_all_features():
     print 'Features scaled successfully !'
 
 
-def compute_score(clf, X, y,scoring='accuracy'):
+def compute_score(clf, X, y, scoring='accuracy'):
     xval = cross_val_score(clf, X, y, cv = 5,scoring=scoring)
     return np.mean(xval)
 
@@ -282,17 +277,22 @@ def recover_train_test_target(train_path):
 
     return train, test, targets
 
-def get_variable_importance(train, targets):
+def get_variable_importance(train, targets, test):
+    """Selects best variables and subset train and test datasets"""
     clf = ExtraTreesClassifier(n_estimators=200)
     clf = clf.fit(train, targets)
     features = pd.DataFrame()
     features['feature'] = train.columns
     features['importance'] = clf.feature_importances_
-    features.sort(['importance'], ascending=False)
+    features.sort_values(['importance'], ascending=False)
     model = SelectFromModel(clf, prefit=True)
     train_new = model.transform(train)
     selected_features = features['feature'][model.get_support()]
     test_new = model.transform(test)
+    return selected_features, train_new, test_new
+
+
+def fit_model(targets, train_new):
     forest = RandomForestClassifier(max_features='sqrt')
     parameter_grid = {
         'max_depth': [4, 5, 6, 7, 8],
@@ -300,20 +300,22 @@ def get_variable_importance(train, targets):
         'criterion': ['gini', 'entropy']
     }
 
-    cross_validation = StratifiedKFold(targets, n_folds=5)
+    cross_validation = StratifiedKFold(n_splits=5)
     grid_search = GridSearchCV(forest,
                                param_grid=parameter_grid,
                                cv=cross_validation, verbose=100)
     grid_search.fit(train_new, targets)
-    print('Best score: {}'.format(grid_search.best_score_))
-    print('Best parameters: {}'.format(grid_search.best_params_))
+    best_score = grid_search.best_score_
+    best_params = grid_search.best_params_
 
-    pipeline = grid_search
-    output = pipeline.predict(test_new).astype(int)
+    return grid_search, best_score, best_params
+
+
+def make_predictions(model, test_new, out_path):
+    output = model.predict(test_new).astype(int)
     df_output = pd.DataFrame()
     df_output['PassengerId'] = test['PassengerId']
     df_output['Survived'] = output
-    out_path = '/Users/gc/Documents/kaggle/titanic/submissions/submission9.csv'
     df_output[['PassengerId', 'Survived']].to_csv(out_path, index=False)
 
 if __name__ == "__main__":
@@ -332,4 +334,7 @@ if __name__ == "__main__":
     process_family()
     scale_all_features()
     train, test, targets = recover_train_test_target(train_path)
-    get_variable_importance(train, targets)
+    selected_features, train_new, test_new = get_variable_importance(train, targets, test)
+    model, best_score, best_params = fit_model(targets, train_new)
+    out_path = '/Users/gc/Documents/kaggle/titanic/submissions/submission10.csv'
+    make_predictions(model, test_new, out_path)
