@@ -1,6 +1,15 @@
 #"""Based on article http://ahmedbesbes.com/how-to-score-08134-in-titanic-kaggle-challenge.html"""
 import pandas as pd
 import numpy as np
+from sklearn.pipeline import make_pipeline
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.feature_selection import SelectKBest
+from sklearn.cross_validation import StratifiedKFold
+from sklearn.grid_search import GridSearchCV
+from sklearn.ensemble.gradient_boosting import GradientBoostingClassifier
+from sklearn.cross_validation import cross_val_score
+from sklearn.ensemble import ExtraTreesClassifier
+from sklearn.feature_selection import SelectFromModel
 
 
 def status(feature):
@@ -257,6 +266,56 @@ def scale_all_features():
     print 'Features scaled successfully !'
 
 
+def compute_score(clf, X, y,scoring='accuracy'):
+    xval = cross_val_score(clf, X, y, cv = 5,scoring=scoring)
+    return np.mean(xval)
+
+
+def recover_train_test_target(train_path):
+    global combined
+
+    train0 = pd.read_csv(train_path)
+    dataset_size = train0.shape[0]
+    targets = train0.Survived
+    train = combined.ix[0:dataset_size-1]
+    test = combined.ix[dataset_size:]
+
+    return train, test, targets
+
+def get_variable_importance(train, targets):
+    clf = ExtraTreesClassifier(n_estimators=200)
+    clf = clf.fit(train, targets)
+    features = pd.DataFrame()
+    features['feature'] = train.columns
+    features['importance'] = clf.feature_importances_
+    features.sort(['importance'], ascending=False)
+    model = SelectFromModel(clf, prefit=True)
+    train_new = model.transform(train)
+    selected_features = features['feature'][model.get_support()]
+    test_new = model.transform(test)
+    forest = RandomForestClassifier(max_features='sqrt')
+    parameter_grid = {
+        'max_depth': [4, 5, 6, 7, 8],
+        'n_estimators': range(200, 300, 10),
+        'criterion': ['gini', 'entropy']
+    }
+
+    cross_validation = StratifiedKFold(targets, n_folds=5)
+    grid_search = GridSearchCV(forest,
+                               param_grid=parameter_grid,
+                               cv=cross_validation, verbose=100)
+    grid_search.fit(train_new, targets)
+    print('Best score: {}'.format(grid_search.best_score_))
+    print('Best parameters: {}'.format(grid_search.best_params_))
+
+    pipeline = grid_search
+    output = pipeline.predict(test_new).astype(int)
+    df_output = pd.DataFrame()
+    df_output['PassengerId'] = test['PassengerId']
+    df_output['Survived'] = output
+    out_path = '/Users/gc/Documents/kaggle/titanic/submissions/submission9.csv'
+    df_output[['PassengerId', 'Survived']].to_csv(out_path, index=False)
+
 if __name__ == "__main__":
     train_path = '/Users/gc/Documents/kaggle/titanic/data/train.csv'
     test_path = '/Users/gc/Documents/kaggle/titanic/data/test.csv'
@@ -272,3 +331,5 @@ if __name__ == "__main__":
     process_ticket()
     process_family()
     scale_all_features()
+    train, test, targets = recover_train_test_target(train_path)
+    get_variable_importance(train, targets)
